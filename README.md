@@ -113,6 +113,20 @@ npm run start:prod
 
 The API will be available at `http://localhost:3000/api`
 
+### 6. Create Admin User (Optional)
+
+To create an admin user for accessing the admin dashboard:
+
+```bash
+# Using environment variables
+ADMIN_EMAIL="admin@example.com" ADMIN_PASSWORD="your-secure-password" ADMIN_NAME="Admin User" npx ts-node src/admin/scripts/create-admin.ts
+
+# Or with default values (admin@smartstudyscanner.com / admin123)
+npx ts-node src/admin/scripts/create-admin.ts
+```
+
+**Note**: The script will create an admin user with the specified credentials. Change the default password immediately after first login.
+
 ## 📚 Available Scripts
 
 | Command                   | Description                              |

@@ -1,0 +1,8 @@
+{
+  "email": "john.doe@example.com",
+  "fullName": "John Doe",
+  "avatarUrl": "https://i.pravatar.cc/150?img=1",
+  "role": "CLIENT",
+  "authProvider": "GOOGLE",
+  "googleId": "google-1234567890"
+}

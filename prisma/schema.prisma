@@ -1,0 +1,341 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER MODEL - Base Entity with Inheritance
+// ============================================
+
+enum UserRole {
+  ADMIN   // Dashboard/Management users
+  STUDENT // Mobile app users (renamed from CLIENT for clarity)
+}
+
+enum AuthProvider {
+  EMAIL   // For admin login (email + password)
+  GOOGLE  // For student OAuth (Google Sign-In)
+}
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  fullName      String?
+  avatarUrl     String?
+  
+  // Role & Authentication
+  role          UserRole      @default(STUDENT)
+  authProvider  AuthProvider  @default(GOOGLE)
+  
+  // Google OAuth (STUDENT only)
+  googleId      String?       @unique // Google user ID
+  
+  // Account Status
+  isActive      Boolean       @default(true)
+  isVerified    Boolean       @default(false)
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  // Relations (required by Prisma but won't be used in queries)
+  student       Student?
+  admin         Admin?
+  quizAttempts  QuizAttempt[]
+  
+  @@index([email])
+  @@index([googleId])
+  @@index([role])
+  @@map("users")
+}
+
+// ============================================
+// STUDENT - Extends User with gamification
+// ============================================
+
+model Student {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Gamification Stats
+  level         Int           @default(1)
+  xp            Int           @default(0)
+  streak        Int           @default(0)
+  lastActiveAt  DateTime?
+  
+  // Study Preferences
+  preferredLanguage String?   @default("en")
+  studyGoal     Int?          @default(30) // minutes per day
+  
+  // Relations
+  library       Library?      // Student has ONE library
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@map("students")
+}
+
+// ============================================
+// ADMIN - Extends User with admin permissions
+// ============================================
+
+model Admin {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Authentication (EMAIL only for admins)
+  passwordHash  String        // Bcrypt hashed password
+  
+  lastLoginAt   DateTime?
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@map("admins")
+}
+
+
+// ============================================
+// DOCUMENT - Uploaded files metadata
+// ============================================
+
+model Document {
+  id            String        @id @default(uuid())
+  
+  // File Information
+  filename      String        // Original filename
+  mimeType      String        // File MIME type
+  fileSize      Int           // File size in bytes
+  fileUrl       String?       // URL if stored externally (Supabase/S3)
+  
+  // Content Information
+  title         String?       // Extracted or inferred title
+  language      String?       // Detected language (en, fr, ar, etc.)
+  wordCount     Int?          // Estimated word count
+  
+  // Timestamps
+  uploadedAt    DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  // Relations
+  summaries     Summary[]
+  quizzes       Quiz[]
+  flashcardSets FlashcardSet[]
+  
+  @@index([uploadedAt])
+  @@map("documents")
+}
+
+// ============================================
+// LIBRARY - Student's content collection (ONE per student)
+// ============================================
+
+model Library {
+  id            String        @id @default(uuid())
+  
+  // Owner (ONE library per student)
+  studentId     String        @unique
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  // Relations to generated content (many items)
+  summaries     Summary[]
+  quizzes       Quiz[]
+  flashcardSets FlashcardSet[]
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@map("libraries")
+}
+
+// ============================================
+// SUMMARY - Generated summaries
+// ============================================
+
+model Summary {
+  id            String        @id @default(uuid())
+  
+  // Content
+  title         String
+  summary       String        @db.Text // Full summary text
+  keyPoints     String[]      // Array of key points
+  wordCount     Int           // Original document word count
+  
+  // Source Document
+  documentId    String
+  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  // Library Relation
+  libraryId     String
+  library       Library       @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  
+  // Metadata
+  language      String?       // Language of summary
+  isFavorite    Boolean       @default(false)
+  lastAccessedAt DateTime?
+  generatedAt   DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([documentId])
+  @@index([libraryId])
+  @@map("summaries")
+}
+
+// ============================================
+// QUIZ - Generated quizzes
+// ============================================
+
+model Quiz {
+  id            String        @id @default(uuid())
+  
+  // Content
+  title         String
+  description   String?       @db.Text
+  
+  // Source Document
+  documentId    String
+  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  // Library Relation
+  libraryId     String
+  library       Library       @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  questions     QuizQuestion[]
+  attempt       QuizAttempt?  // ONE attempt per quiz (one-to-one)
+  
+  // Metadata
+  language      String?
+  isFavorite    Boolean       @default(false)
+  lastAccessedAt DateTime?
+  generatedAt   DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([documentId])
+  @@index([libraryId])
+  @@map("quizzes")
+}
+
+// ============================================
+// QUIZ QUESTION - Individual quiz questions
+// ============================================
+
+model QuizQuestion {
+  id            String        @id @default(uuid())
+  
+  // Question Content
+  quizId        String
+  quiz          Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  questionNumber Int          // Order in quiz (1, 2, 3...)
+  question      String        @db.Text
+  options       String[]      // Array of 4 options
+  correctAnswer String        // A, B, C, or D
+  explanation   String        @db.Text
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([quizId])
+  @@map("quiz_questions")
+}
+
+// ============================================
+// FLASHCARD SET - Collection of flashcards
+// ============================================
+
+model FlashcardSet {
+  id            String        @id @default(uuid())
+  
+  // Content
+  title         String
+  description   String?       @db.Text
+  
+  // Source Document
+  documentId    String
+  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  // Library Relation
+  libraryId     String
+  library       Library       @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  flashcards    Flashcard[]
+  
+  // Metadata
+  language      String?
+  isFavorite    Boolean       @default(false)
+  lastAccessedAt DateTime?
+  generatedAt   DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([documentId])
+  @@index([libraryId])
+  @@map("flashcard_sets")
+}
+
+// ============================================
+// FLASHCARD - Individual flashcards
+// ============================================
+
+model Flashcard {
+  id            String        @id @default(uuid())
+  
+  // Card Content
+  setId         String
+  set           FlashcardSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+  
+  cardNumber    Int           // Order in set (1, 2, 3...)
+  front         String        @db.Text // Question/term
+  back          String        @db.Text // Answer/definition
+  hint          String?       @db.Text // Optional hint
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([setId])
+  @@map("flashcards")
+}
+
+// ============================================
+// QUIZ ATTEMPT - Track quiz attempt (ONE per quiz, belongs to quiz owner)
+// ============================================
+
+model QuizAttempt {
+  id              String    @id @default(uuid())
+  
+  // Quiz Reference (one-to-one relation)
+  quizId          String    @unique // UNIQUE = one attempt per quiz
+  quiz            Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  // User Reference
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Score & Results
+  score           Float     // Percentage (0-100)
+  correctAnswers  Int       // Number of correct answers
+  totalQuestions  Int       // Total questions in quiz
+  answers         Json      // Array of detailed answer objects (JSONB in PostgreSQL)
+  
+  // Timestamps
+  completedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([userId])
+  @@map("quiz_attempts")
+}
